@@ -1,59 +1,212 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 🔍 Laravel 11 – Live Search + Pagination + Sorting System  
+![Laravel](https://img.shields.io/badge/Laravel-11-orange)
+![PHP](https://img.shields.io/badge/PHP-8.2-blue)
+![Bootstrap](https://img.shields.io/badge/Bootstrap-5-purple)
+![MySQL](https://img.shields.io/badge/Database-MySQL-yellow)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+This documentation explains how to create a **Live Search, Sorting & Pagination System** in Laravel 11.  
+It includes a full Product CRUD with image upload, admin panel, and customer product page.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+# ⭐ Features
+- Live Search (AJAX)
+- Price Sorting (Low → High, High → Low)
+- Pagination with preserved filters
+- Product CRUD
+- Single image upload
+- Customer product display
+- Admin panel layout
+- Breeze authentication support
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+---
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+# 🧱 Step 1 — Install Laravel 11
 
-## Learning Laravel
+```
+composer create-project laravel/laravel example-app
+```
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+---
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+# 🛠 Step 2 — Database Configuration
 
-## Laravel Sponsors
+Update `.env`:
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```
+DB_CONNECTION=mysql
+DB_DATABASE=your_db
+DB_USERNAME=root
+DB_PASSWORD=root
+```
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+# 🧱 Step 3 — Product Migration
 
-## Contributing
+```php
+$table->string('name');
+$table->text('details');
+$table->decimal('price', 8, 2);
+$table->string('size');
+$table->string('color');
+$table->string('category');
+$table->string('image')->nullable();
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Run:
 
-## Code of Conduct
+```
+php artisan migrate
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+---
 
-## Security Vulnerabilities
+# 🧠 Step 4 — Routes
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```php
+Route::resource('products', ProductController::class);
+```
 
-## License
+---
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# 🧠 Step 5 — Product Model
+
+```php
+protected $fillable = [
+    'name','details','price','size','color','category','image'
+];
+```
+
+---
+
+# 🚀 Step 6 — ProductController (Live Search + Sorting + Pagination)
+
+### ✔ LIVE SEARCH  
+Searches across:
+- name  
+- category  
+- color  
+- size  
+- details  
+- price (exact match)
+
+### ✔ SORTING  
+- price-asc  
+- price-desc  
+
+### ✔ PAGINATION  
+```php
+$products = $query->paginate(1)->appends($request->query());
+```
+
+---
+
+# 🎨 Step 7 — Index Page (AJAX Search + Pagination)
+
+UI includes:
+- Search box  
+- Sorting dropdown  
+- Filter button  
+- AJAX-powered updates  
+- Pagination  
+- Image preview  
+- Edit/Delete buttons  
+
+AJAX Script:
+```js
+$('#search').on('keyup', function(){
+    fetch_data(1, $('#search').val(), $('#sort').val());
+});
+```
+
+---
+
+# 🎨 Step 8 — Create & Edit Product Pages
+
+Includes:
+- Name  
+- Details  
+- Image upload  
+- Size  
+- Color  
+- Category  
+- Price  
+- Preview of current image in Edit page  
+
+Image upload:
+```php
+$imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
+$request->image->move(public_path('images'), $imageName);
+```
+
+---
+
+# 👤 Step 9 — Customer Product Page
+
+```
+Route::get('/customer/products', [CustomerProductsController::class, 'index']);
+```
+
+Displays:
+- Image
+- Name
+- Short details
+- Category
+- Size, Color
+- Price
+
+---
+
+# 🎨 Step 10 — Admin & Customer Layouts
+
+### ✔ Admin Layout
+- Bootstrap UI
+- Navigation
+- Header
+- Content container
+
+### ✔ Customer Layout
+- Product grid  
+- Fixed card height  
+- Clean simple UI  
+
+---
+
+# 🔐 Step 11 — Breeze Authentication
+
+```
+composer require laravel/breeze --dev
+php artisan breeze:install blade
+npm install
+npm run dev
+php artisan migrate
+```
+
+Protect routes:
+```php
+Route::middleware(['auth'])->group(function () {
+    Route::resource('products', ProductController::class);
+});
+```
+
+Login redirect:
+```
+public const HOME = '/products';
+```
+
+---
+
+# ▶ Run Application
+
+```
+php artisan serve
+```
+
+Admin URL:
+```
+http://localhost:8000/products
+
+<img width="1054" height="237" alt="image" src="https://github.com/user-attachments/assets/a9fec3bb-37c2-41b6-bdfe-fd2001128d12" />
+<img width="676" height="151" alt="image" src="https://github.com/user-attachments/assets/d643f305-dc04-4141-97d6-0a61606aff3b" />
+
