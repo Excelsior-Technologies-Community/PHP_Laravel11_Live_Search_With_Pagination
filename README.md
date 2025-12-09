@@ -1,5 +1,5 @@
 
-# Laravel 11 – Product CRUD With **Live Search + Pagination** (AJAX Based)
+# PHP_Laravel11_Live_Search_With_Pagination
 
 This README explains ONLY the **LIVE SEARCH** and **AJAX Pagination** system used in the Product CRUD application.
 
