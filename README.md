@@ -1,5 +1,5 @@
 
-# 📦 Laravel 11 – Full Product CRUD with Live Search, Sorting, Pagination, Image Upload + Admin & Customer Panels
+ Laravel 11 – Full Product CRUD with Live Search, Sorting, Pagination, Image Upload + Admin & Customer Panels
 
 ![Laravel](https://img.shields.io/badge/Laravel-11-orange)
 ![PHP](https://img.shields.io/badge/PHP-8.2-blue)
@@ -19,7 +19,7 @@ This documentation provides a **complete professional guide** for building a ful
 
 ---
 
-# 🚀 Features Overview
+ Features Overview
 
 | Feature | Description |
 |--------|-------------|
@@ -33,7 +33,7 @@ This documentation provides a **complete professional guide** for building a ful
 
 ---
 
-# 📂 Project Structure (Important Folders)
+ Project Structure (Important Folders)
 ```
 /app
   /Models/Product.php
@@ -49,15 +49,14 @@ This documentation provides a **complete professional guide** for building a ful
 
 ---
 
-# 🛠 Step 1: Install Laravel 11
+ Step 1: Install Laravel 11
 
 ```
 composer create-project laravel/laravel example-app
 ```
 
 ---
-
-# 🛠 Step 2: Configure MySQL
+ Step 2: Configure MySQL
 
 Modify `.env`:
 
@@ -72,7 +71,7 @@ DB_PASSWORD=root
 
 ---
 
-# 🛠 Step 3: Create Products Migration
+ Step 3: Create Products Migration
 
 Migration includes:
 
@@ -92,7 +91,7 @@ php artisan migrate
 
 ---
 
-# 🛠 Step 4: Resource Route
+ Step 4: Resource Route
 
 ```
 Route::resource('products', ProductController::class);
@@ -100,9 +99,9 @@ Route::resource('products', ProductController::class);
 
 ---
 
-# 🛠 Step 5: ProductController (FULL LOGIC INCLUDED)
+ Step 5: ProductController (FULL LOGIC INCLUDED)
 
-### ⭐ Live Search Logic Explained
+ Live Search Logic Explained
 
 ```
 if ($request->filled('keyword')) {
@@ -120,20 +119,20 @@ if ($request->filled('keyword')) {
 }
 ```
 
-### ⭐ Sorting Logic
+ Sorting Logic
 
 ```
 if ($request->sort == 'price-asc')  orderBy('price', 'asc');
 if ($request->sort == 'price-desc') orderBy('price', 'desc');
 ```
 
-### ⭐ Pagination
+ Pagination
 
 ```
 $products = $query->paginate(1)->appends($request->query());
 ```
 
-### ⭐ Image Upload
+ Image Upload
 
 ```
 $imageName = time().'_'.uniqid().'.'.$request->image->extension();
@@ -142,9 +141,9 @@ $request->image->move(public_path('images'), $imageName);
 
 ---
 
-# 🛠 Step 6: Blade Files (Frontend)
+ Step 6: Blade Files (Frontend)
 
-## 📝 index.blade.php (LIVE SEARCH + SORT + PAGINATION)
+ index.blade.php (LIVE SEARCH + SORT + PAGINATION)
 
 Includes:
 
@@ -153,7 +152,7 @@ Includes:
 - AJAX pagination
 - Table with product details
 
-### AJAX Script Example
+ AJAX Script Example
 
 ```
 $('#search').keyup(function(){
@@ -167,7 +166,7 @@ $('#sort').change(function(){
 
 ---
 
-## 📝 create.blade.php (Create Product Form)
+ create.blade.php (Create Product Form)
 
 Includes:
 
@@ -181,7 +180,7 @@ Includes:
 
 ---
 
-## 📝 edit.blade.php (Update Product)
+ edit.blade.php (Update Product)
 
 Includes:
 
@@ -191,7 +190,7 @@ Includes:
 
 ---
 
-# 🛠 Step 7: Admin Panel Layout
+ Step 7: Admin Panel Layout
 
 Uses:
 
@@ -203,7 +202,7 @@ File: `resources/views/layouts/admin.blade.php`
 
 ---
 
-# 🔐 Laravel Breeze Authentication Setup
+ Laravel Breeze Authentication Setup
 
 Install Breeze:
 
@@ -231,7 +230,7 @@ public const HOME = '/products';
 
 ---
 
-# 👥 Customer Product Page (Frontend)
+ Customer Product Page (Frontend)
 
 Route:
 
@@ -249,7 +248,7 @@ Blade view includes:
 
 ---
 
-# ▶ Run Project
+ Run Project
 
 ```
 php artisan serve
