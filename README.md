@@ -1,5 +1,5 @@
 
- Laravel 11 – Product CRUD With **Live Search + Pagination** (AJAX Based)
+# Laravel 11 – Product CRUD With **Live Search + Pagination** (AJAX Based)
 
 This README explains ONLY the **LIVE SEARCH** and **AJAX Pagination** system used in the Product CRUD application.
 
@@ -7,7 +7,7 @@ This README explains ONLY the **LIVE SEARCH** and **AJAX Pagination** system use
 
 ---
 
- Step 1 — Install Laravel 11
+# Step 1 — Install Laravel 11
 
 ```
 composer create-project laravel/laravel example-app
@@ -15,7 +15,7 @@ composer create-project laravel/laravel example-app
 
 ---
 
- Step 2 — Configure Database
+# Step 2 — Configure Database
 
 Update `.env`:
 
@@ -29,7 +29,7 @@ DB_PASSWORD=root
 
 ---
 
- Step 3 — Create Products Table
+# Step 3 — Create Products Table
 
 ```
 php artisan make:migration create_products_table --create=products
@@ -53,7 +53,7 @@ php artisan migrate
 
 ---
 
- Step 4 — Add Resource Routes
+# Step 4 — Add Resource Routes
 
 ```
 Route::resource('products', ProductController::class);
@@ -61,7 +61,7 @@ Route::resource('products', ProductController::class);
 
 ---
 
- Step 5 — Product Model
+# Step 5 — Product Model
 
 ```php
 protected $fillable = [
@@ -124,7 +124,7 @@ So that when you click next page:
 
 ---
 
- Step 7 — Blade UI for Live Search + Pagination
+# Step 7 — Blade UI for Live Search + Pagination
 
  Search Input
 ```html
@@ -140,7 +140,7 @@ Laravel automatically renders:
 
 ---
 
- Step 8 — AJAX Code (LIVE SEARCH + PAGINATION ONLY)
+# Step 8 — AJAX Code (LIVE SEARCH + PAGINATION ONLY)
 
 No sorting code included.
 
