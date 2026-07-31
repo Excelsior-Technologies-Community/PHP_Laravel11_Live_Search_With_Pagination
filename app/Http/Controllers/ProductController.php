@@ -4,15 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class ProductController extends Controller
 {
-    // Show all products with search + sort + pagination
     public function index(Request $request)
     {
+        if ($request->filled('clear_history')) {
+            session()->forget('search_history');
+        }
+
         $query = Product::where('status', '!=', 'deleted');
 
-        // LIVE SEARCH
         if ($request->filled('keyword')) {
             $keyword = $request->keyword;
 
@@ -27,28 +30,83 @@ class ProductController extends Controller
                       ->orWhere('details', 'like', "%{$keyword}%");
                 });
             }
+
+            $searchHistory = session()->get('search_history', []);
+            $searchHistory = array_filter($searchHistory, fn($item) => $item !== $keyword);
+            array_unshift($searchHistory, $keyword);
+            $searchHistory = array_slice($searchHistory, 0, 10);
+            session()->put('search_history', $searchHistory);
         }
 
-        // SORTING
+        if ($request->filled('category')) {
+            $query->where('category', $request->category);
+        }
+
+        if ($request->filled('price_min') && is_numeric($request->price_min)) {
+            $query->where('price', '>=', (float)$request->price_min);
+        }
+
+        if ($request->filled('price_max') && is_numeric($request->price_max)) {
+            $query->where('price', '<=', (float)$request->price_max);
+        }
+
         if ($request->filled('sort') && in_array($request->sort, ['price-asc', 'price-desc'])) {
             $query->orderBy('price', $request->sort == 'price-asc' ? 'asc' : 'desc');
         } else {
             $query->latest();
         }
 
-        // PAGINATION
-        $products = $query->paginate(1)->appends($request->query());
+        $products = $query->paginate(10)->appends($request->query());
+        $categories = Product::select('category')->distinct()->orderBy('category')->pluck('category');
+        $searchHistory = session()->get('search_history', []);
 
-        return view('products.index', compact('products'));
+        return view('products.index', compact('products', 'categories', 'searchHistory'));
     }
 
-    // Create page
+    public function suggestions(Request $request)
+    {
+        $keyword = $request->get('keyword', '');
+        $suggestions = [];
+
+        if (strlen($keyword) >= 2) {
+            $products = Product::where('status', '!=', 'deleted')
+                ->where(function ($q) use ($keyword) {
+                    $q->where('name', 'like', "%{$keyword}%")
+                      ->orWhere('category', 'like', "%{$keyword}%")
+                      ->orWhere('color', 'like', "%{$keyword}%")
+                      ->orWhere('size', 'like', "%{$keyword}%");
+                })
+                ->select('name', 'category', 'color', 'size', 'price')
+                ->limit(8)
+                ->get();
+
+            $seen = [];
+            foreach ($products as $product) {
+                $label = $product->name;
+                if (!in_array($label, $seen)) {
+                    $suggestions[] = ['label' => $label, 'type' => 'Product'];
+                    $seen[] = $label;
+                }
+                if (!in_array($product->category, $seen)) {
+                    $suggestions[] = ['label' => $product->category, 'type' => 'Category'];
+                    $seen[] = $product->category;
+                }
+                if (!in_array($product->color, $seen)) {
+                    $suggestions[] = ['label' => $product->color, 'type' => 'Color'];
+                    $seen[] = $product->color;
+                }
+            }
+        }
+
+        return response()->json($suggestions);
+    }
+
     public function create()
     {
-        return view('products.create');
+        $categories = Product::select('category')->distinct()->orderBy('category')->pluck('category');
+        return view('products.create', compact('categories'));
     }
 
-    // Store product
     public function store(Request $request)
     {
         $request->validate([
@@ -58,12 +116,16 @@ class ProductController extends Controller
             'color'     => 'required',
             'category'  => 'required',
             'price'     => 'required|numeric',
-            'image'     => 'required|image|max:2048',
+            'stock'     => 'required|integer|min:0',
+            'image'     => 'nullable|image|max:2048',
         ]);
 
-        // UPLOAD SINGLE IMAGE
-        $imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
-        $request->image->move(public_path('images'), $imageName);
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
+            $request->image->move(public_path('images'), $imageName);
+            $imagePath = 'images/' . $imageName;
+        }
 
         Product::create([
             'name'      => $request->name,
@@ -72,19 +134,20 @@ class ProductController extends Controller
             'color'     => $request->color,
             'category'  => $request->category,
             'price'     => $request->price,
-            'image'     => 'images/' . $imageName,
+            'stock'     => $request->stock ?? 0,
+            'low_stock_threshold' => $request->low_stock_threshold ?? 5,
+            'image'     => $imagePath,
         ]);
 
         return redirect()->route('products.index')->with('success', 'Product created successfully.');
     }
 
-    // Edit Product
     public function edit(Product $product)
     {
-        return view('products.edit', compact('product'));
+        $categories = Product::select('category')->distinct()->orderBy('category')->pluck('category');
+        return view('products.edit', compact('product', 'categories'));
     }
 
-    // Update Product
     public function update(Request $request, Product $product)
     {
         $request->validate([
@@ -94,21 +157,18 @@ class ProductController extends Controller
             'color'     => 'required',
             'category'  => 'required',
             'price'     => 'required|numeric',
+            'stock'     => 'required|integer|min:0',
             'image'     => 'nullable|image|max:2048',
         ]);
 
         $imagePath = $product->image;
 
-        // If new image uploaded
         if ($request->hasFile('image')) {
-
             if ($product->image && file_exists(public_path($product->image))) {
                 unlink(public_path($product->image));
             }
-
             $imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
             $request->image->move(public_path('images'), $imageName);
-
             $imagePath = 'images/' . $imageName;
         }
 
@@ -119,18 +179,17 @@ class ProductController extends Controller
             'color'     => $request->color,
             'category'  => $request->category,
             'price'     => $request->price,
+            'stock'     => $request->stock,
+            'low_stock_threshold' => $request->low_stock_threshold ?? 5,
             'image'     => $imagePath,
         ]);
 
         return redirect()->route('products.index')->with('success', 'Product updated successfully.');
     }
 
-    // Soft Delete
     public function destroy(Product $product)
     {
-        
         $product->delete();
-
         return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
     }
 }

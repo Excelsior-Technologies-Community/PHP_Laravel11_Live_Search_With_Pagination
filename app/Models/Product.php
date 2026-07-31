@@ -13,13 +13,18 @@ class Product extends Model
     protected $fillable = [
         'name',
         'details',
-        'image',      // SINGLE IMAGE ONLY
+        'image',
         'size',
         'color',
         'category',
         'price',
         'status',
+        'stock',
+        'low_stock_threshold',
     ];
 
-    protected $dates = ['deleted_at'];
+    protected $casts = [
+        'stock' => 'integer',
+        'low_stock_threshold' => 'integer',
+    ];
 }
