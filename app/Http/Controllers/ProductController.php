@@ -4,9 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
+    /*
+    |--------------------------------------------------------------------------
+    | INDEX
+    |--------------------------------------------------------------------------
+    */
+
     public function index(Request $request)
     {
         /*
@@ -14,435 +21,1680 @@ class ProductController extends Controller
         | Clear Search History
         |--------------------------------------------------------------------------
         */
-        if ($request->filled('clear_history')) {
+
+        if ($request->boolean('clear_history')) {
             session()->forget('search_history');
         }
+
 
         /*
         |--------------------------------------------------------------------------
         | Base Query
         |--------------------------------------------------------------------------
+        |
+        | Soft deleted products are automatically excluded when the Product
+        | model uses SoftDeletes.
+        |
         */
-        $query = Product::where('status', '!=', 'deleted');
+
+        $query = Product::query();
+
 
         /*
         |--------------------------------------------------------------------------
-        | Live Search
+        | Search
         |--------------------------------------------------------------------------
         */
+
         if ($request->filled('keyword')) {
-            $keyword = $request->keyword;
 
-            if (is_numeric($keyword)) {
+            $keyword = trim($request->keyword);
 
-                // Number → exact price search
-                $query->where('price', (float) $keyword);
+            if ($keyword !== '') {
 
-            } else {
+                /*
+                |--------------------------------------------------------------------------
+                | Numeric Search
+                |--------------------------------------------------------------------------
+                |
+                | Search both:
+                | - Product ID
+                | - Exact price
+                |
+                */
 
-                // Text → search multiple fields
-                $query->where(function ($q) use ($keyword) {
-                    $q->where('name', 'like', "%{$keyword}%")
-                        ->orWhere('category', 'like', "%{$keyword}%")
-                        ->orWhere('color', 'like', "%{$keyword}%")
-                        ->orWhere('size', 'like', "%{$keyword}%")
-                        ->orWhere('details', 'like', "%{$keyword}%");
-                });
+                if (is_numeric($keyword)) {
+
+                    $query->where(function ($q) use ($keyword) {
+
+                        $q->where(
+                            'id',
+                            (int) $keyword
+                        )
+                            ->orWhere(
+                                'price',
+                                (float) $keyword
+                            );
+                    });
+                } else {
+
+                    $query->where(function ($q) use ($keyword) {
+
+                        $q->where(
+                            'name',
+                            'like',
+                            "%{$keyword}%"
+                        )
+                            ->orWhere(
+                                'category',
+                                'like',
+                                "%{$keyword}%"
+                            )
+                            ->orWhere(
+                                'color',
+                                'like',
+                                "%{$keyword}%"
+                            )
+                            ->orWhere(
+                                'size',
+                                'like',
+                                "%{$keyword}%"
+                            )
+                            ->orWhere(
+                                'details',
+                                'like',
+                                "%{$keyword}%"
+                            );
+                    });
+                }
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | Search History
+                |--------------------------------------------------------------------------
+                */
+
+                $searchHistory = session()->get(
+                    'search_history',
+                    []
+                );
+
+                $searchHistory = array_values(
+                    array_filter(
+                        $searchHistory,
+                        fn($item) => $item !== $keyword
+                    )
+                );
+
+                array_unshift(
+                    $searchHistory,
+                    $keyword
+                );
+
+                $searchHistory = array_slice(
+                    $searchHistory,
+                    0,
+                    10
+                );
+
+                session()->put(
+                    'search_history',
+                    $searchHistory
+                );
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Search History
-            |--------------------------------------------------------------------------
-            */
-            $searchHistory = session()->get('search_history', []);
-
-            $searchHistory = array_filter(
-                $searchHistory,
-                fn ($item) => $item !== $keyword
-            );
-
-            array_unshift($searchHistory, $keyword);
-
-            $searchHistory = array_slice($searchHistory, 0, 10);
-
-            session()->put('search_history', $searchHistory);
         }
+
 
         /*
         |--------------------------------------------------------------------------
         | Category Filter
         |--------------------------------------------------------------------------
         */
+
         if ($request->filled('category')) {
-            $query->where('category', $request->category);
+
+            $query->where(
+                'category',
+                $request->category
+            );
         }
+
 
         /*
         |--------------------------------------------------------------------------
-        | Price Minimum
+        | Minimum Price
         |--------------------------------------------------------------------------
         */
-        if ($request->filled('price_min') && is_numeric($request->price_min)) {
-            $query->where('price', '>=', (float) $request->price_min);
+
+        if (
+            $request->filled('price_min') &&
+            is_numeric($request->price_min)
+        ) {
+
+            $query->where(
+                'price',
+                '>=',
+                (float) $request->price_min
+            );
         }
+
 
         /*
         |--------------------------------------------------------------------------
-        | Price Maximum
+        | Maximum Price
         |--------------------------------------------------------------------------
         */
-        if ($request->filled('price_max') && is_numeric($request->price_max)) {
-            $query->where('price', '<=', (float) $request->price_max);
+
+        if (
+            $request->filled('price_max') &&
+            is_numeric($request->price_max)
+        ) {
+
+            $query->where(
+                'price',
+                '<=',
+                (float) $request->price_max
+            );
         }
+
 
         /*
         |--------------------------------------------------------------------------
-        | NEW: Stock Availability Filter
+        | Stock Filter
         |--------------------------------------------------------------------------
-        |
-        | all       → all products
-        | in-stock  → stock greater than 0 and above low-stock threshold
-        | low-stock → stock greater than 0 but below/equal threshold
-        | out-stock → stock equal to 0
-        |
         */
+
         if ($request->filled('stock_status')) {
 
             switch ($request->stock_status) {
 
+                /*
+                |--------------------------------------------------------------------------
+                | In Stock
+                |--------------------------------------------------------------------------
+                */
+
                 case 'in-stock':
-                    $query->where('stock', '>', 0)
-                        ->whereColumn('stock', '>', 'low_stock_threshold');
+
+                    $query
+                        ->where('stock', '>', 0)
+                        ->whereColumn(
+                            'stock',
+                            '>',
+                            'low_stock_threshold'
+                        );
+
                     break;
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | Low Stock
+                |--------------------------------------------------------------------------
+                */
 
                 case 'low-stock':
-                    $query->where('stock', '>', 0)
-                        ->whereColumn('stock', '<=', 'low_stock_threshold');
+
+                    $query
+                        ->where('stock', '>', 0)
+                        ->whereColumn(
+                            'stock',
+                            '<=',
+                            'low_stock_threshold'
+                        );
+
                     break;
 
+
+                /*
+                |--------------------------------------------------------------------------
+                | Out Of Stock
+                |--------------------------------------------------------------------------
+                */
+
                 case 'out-stock':
-                    $query->where('stock', '<=', 0);
+
+                    $query->where(
+                        'stock',
+                        '<=',
+                        0
+                    );
+
                     break;
             }
         }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Status Filter
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $request->filled('status') &&
+            in_array(
+                $request->status,
+                ['active', 'inactive'],
+                true
+            )
+        ) {
+
+            $query->where(
+                'status',
+                $request->status
+            );
+        }
+
 
         /*
         |--------------------------------------------------------------------------
         | Sorting
         |--------------------------------------------------------------------------
+        |
+        | DEFAULT = ID ASC
+        |
+        | This means:
+        |
+        | 1
+        | 2
+        | 3
+        | 4
+        | 5
+        |
         */
-        if (
-            $request->filled('sort') &&
-            in_array($request->sort, ['price-asc', 'price-desc'])
-        ) {
 
-            $query->orderBy(
-                'price',
-                $request->sort === 'price-asc' ? 'asc' : 'desc'
-            );
+        switch ($request->get('sort')) {
 
-        } else {
+            /*
+            |--------------------------------------------------------------------------
+            | ID ASC
+            |--------------------------------------------------------------------------
+            */
 
-            $query->latest();
+            case 'id-asc':
+
+                $query
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | ID DESC
+            |--------------------------------------------------------------------------
+            */
+
+            case 'id-desc':
+
+                $query
+                    ->orderBy('id', 'desc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Price ASC
+            |--------------------------------------------------------------------------
+            */
+
+            case 'price-asc':
+
+                $query
+                    ->orderBy('price', 'asc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Price DESC
+            |--------------------------------------------------------------------------
+            */
+
+            case 'price-desc':
+
+                $query
+                    ->orderBy('price', 'desc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Name ASC
+            |--------------------------------------------------------------------------
+            */
+
+            case 'name-asc':
+
+                $query
+                    ->orderBy('name', 'asc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Name DESC
+            |--------------------------------------------------------------------------
+            */
+
+            case 'name-desc':
+
+                $query
+                    ->orderBy('name', 'desc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Oldest
+            |--------------------------------------------------------------------------
+            */
+
+            case 'oldest':
+
+                $query
+                    ->orderBy('created_at', 'asc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Latest
+            |--------------------------------------------------------------------------
+            */
+
+            case 'latest':
+
+                $query
+                    ->orderBy('created_at', 'desc')
+                    ->orderBy('id', 'desc');
+
+                break;
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Default
+            |--------------------------------------------------------------------------
+            */
+
+            default:
+
+                $query
+                    ->orderBy('id', 'asc');
+
+                break;
         }
+
 
         /*
         |--------------------------------------------------------------------------
         | Pagination
         |--------------------------------------------------------------------------
         */
+
         $products = $query
-            ->paginate(10)
-            ->appends($request->query());
+            ->paginate(5)
+            ->withQueryString();
+
 
         /*
         |--------------------------------------------------------------------------
         | Categories
         |--------------------------------------------------------------------------
         */
-        $categories = Product::where('status', '!=', 'deleted')
+
+        $categories = Product::query()
+            ->whereNotNull('category')
+            ->where('category', '!=', '')
             ->select('category')
             ->distinct()
-            ->orderBy('category')
+            ->orderBy('category', 'asc')
             ->pluck('category');
+
 
         /*
         |--------------------------------------------------------------------------
         | Search History
         |--------------------------------------------------------------------------
         */
-        $searchHistory = session()->get('search_history', []);
+
+        $searchHistory = session()->get(
+            'search_history',
+            []
+        );
+
 
         /*
         |--------------------------------------------------------------------------
         | Result Count
         |--------------------------------------------------------------------------
         */
+
         $resultCount = $products->total();
 
-        return view('products.index', compact(
-            'products',
-            'categories',
-            'searchHistory',
-            'resultCount'
-        ));
+
+        /*
+        |--------------------------------------------------------------------------
+        | Return View
+        |--------------------------------------------------------------------------
+        */
+
+        return view(
+            'products.index',
+            compact(
+                'products',
+                'categories',
+                'searchHistory',
+                'resultCount'
+            )
+        );
     }
+
 
     /*
     |--------------------------------------------------------------------------
-    | Search Suggestions
+    | SEARCH SUGGESTIONS
     |--------------------------------------------------------------------------
     */
+
     public function suggestions(Request $request)
     {
-        $keyword = $request->get('keyword', '');
+        $keyword = trim(
+            $request->get('keyword', '')
+        );
 
         $suggestions = [];
 
-        if (strlen($keyword) >= 2) {
 
-            $products = Product::where('status', '!=', 'deleted')
-                ->where(function ($q) use ($keyword) {
-                    $q->where('name', 'like', "%{$keyword}%")
-                        ->orWhere('category', 'like', "%{$keyword}%")
-                        ->orWhere('color', 'like', "%{$keyword}%")
-                        ->orWhere('size', 'like', "%{$keyword}%");
-                })
-                ->select(
+        if (mb_strlen($keyword) < 2) {
+            return response()->json([]);
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Find Products
+        |--------------------------------------------------------------------------
+        */
+
+        $products = Product::query()
+            ->where(function ($q) use ($keyword) {
+
+                $q->where(
                     'name',
-                    'category',
-                    'color',
-                    'size',
-                    'price'
+                    'like',
+                    "%{$keyword}%"
                 )
-                ->limit(8)
-                ->get();
+                    ->orWhere(
+                        'category',
+                        'like',
+                        "%{$keyword}%"
+                    )
+                    ->orWhere(
+                        'color',
+                        'like',
+                        "%{$keyword}%"
+                    )
+                    ->orWhere(
+                        'size',
+                        'like',
+                        "%{$keyword}%"
+                    );
+            })
+            ->select(
+                'name',
+                'category',
+                'color',
+                'size'
+            )
+            ->limit(10)
+            ->get();
 
-            $seen = [];
 
-            foreach ($products as $product) {
+        /*
+        |--------------------------------------------------------------------------
+        | Remove Duplicates
+        |--------------------------------------------------------------------------
+        */
 
-                /*
-                |--------------------------------------------------------------------------
-                | Product Suggestion
-                |--------------------------------------------------------------------------
-                */
-                if (
-                    !empty($product->name) &&
-                    !in_array($product->name, $seen)
-                ) {
+        $seen = [];
 
-                    $suggestions[] = [
-                        'label' => $product->name,
-                        'type' => 'Product',
-                    ];
 
-                    $seen[] = $product->name;
-                }
+        foreach ($products as $product) {
 
-                /*
-                |--------------------------------------------------------------------------
-                | Category Suggestion
-                |--------------------------------------------------------------------------
-                */
-                if (
-                    !empty($product->category) &&
-                    !in_array($product->category, $seen)
-                ) {
+            /*
+            |--------------------------------------------------------------------------
+            | Product Name
+            |--------------------------------------------------------------------------
+            */
 
-                    $suggestions[] = [
-                        'label' => $product->category,
-                        'type' => 'Category',
-                    ];
+            if (
+                !empty($product->name) &&
+                !in_array(
+                    $product->name,
+                    $seen,
+                    true
+                )
+            ) {
 
-                    $seen[] = $product->category;
-                }
+                $suggestions[] = [
+                    'label' => $product->name,
+                    'type' => 'Product',
+                ];
 
-                /*
-                |--------------------------------------------------------------------------
-                | Color Suggestion
-                |--------------------------------------------------------------------------
-                */
-                if (
-                    !empty($product->color) &&
-                    !in_array($product->color, $seen)
-                ) {
+                $seen[] = $product->name;
+            }
 
-                    $suggestions[] = [
-                        'label' => $product->color,
-                        'type' => 'Color',
-                    ];
 
-                    $seen[] = $product->color;
-                }
+            /*
+            |--------------------------------------------------------------------------
+            | Category
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                !empty($product->category) &&
+                !in_array(
+                    $product->category,
+                    $seen,
+                    true
+                )
+            ) {
+
+                $suggestions[] = [
+                    'label' => $product->category,
+                    'type' => 'Category',
+                ];
+
+                $seen[] = $product->category;
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Color
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                !empty($product->color) &&
+                !in_array(
+                    $product->color,
+                    $seen,
+                    true
+                )
+            ) {
+
+                $suggestions[] = [
+                    'label' => $product->color,
+                    'type' => 'Color',
+                ];
+
+                $seen[] = $product->color;
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Size
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                !empty($product->size) &&
+                !in_array(
+                    $product->size,
+                    $seen,
+                    true
+                )
+            ) {
+
+                $suggestions[] = [
+                    'label' => $product->size,
+                    'type' => 'Size',
+                ];
+
+                $seen[] = $product->size;
             }
         }
 
-        return response()->json($suggestions);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Limit Suggestions
+        |--------------------------------------------------------------------------
+        */
+
+        return response()->json(
+            array_slice(
+                $suggestions,
+                0,
+                8
+            )
+        );
     }
+
 
     /*
     |--------------------------------------------------------------------------
-    | Create
+    | CREATE
     |--------------------------------------------------------------------------
     */
+
     public function create()
     {
-        $categories = Product::where('status', '!=', 'deleted')
+        $categories = Product::query()
+            ->whereNotNull('category')
+            ->where('category', '!=', '')
             ->select('category')
             ->distinct()
             ->orderBy('category')
             ->pluck('category');
 
-        return view('products.create', compact('categories'));
+
+        return view(
+            'products.create',
+            compact('categories')
+        );
     }
+
 
     /*
     |--------------------------------------------------------------------------
-    | Store
+    | STORE
     |--------------------------------------------------------------------------
     */
+
     public function store(Request $request)
     {
-        $request->validate([
-            'name' => 'required',
-            'details' => 'required',
-            'size' => 'required',
-            'color' => 'required',
-            'category' => 'required',
-            'price' => 'required|numeric|min:0',
-            'stock' => 'required|integer|min:0',
-            'low_stock_threshold' => 'required|integer|min:1',
-            'image' => 'nullable|image|max:2048',
+        $validated = $request->validate([
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'details' => [
+                'required',
+                'string',
+            ],
+
+            'size' => [
+                'required',
+                'string',
+                'max:100',
+            ],
+
+            'color' => [
+                'required',
+                'string',
+                'max:100',
+            ],
+
+            'category' => [
+                'required',
+                'string',
+                'max:100',
+            ],
+
+            'price' => [
+                'required',
+                'numeric',
+                'min:0',
+            ],
+
+            'stock' => [
+                'required',
+                'integer',
+                'min:0',
+            ],
+
+            'low_stock_threshold' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+
+            'image' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:2048',
+            ],
         ]);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Upload Image
+        |--------------------------------------------------------------------------
+        */
 
         $imagePath = null;
 
+
         if ($request->hasFile('image')) {
 
-            $imageName = time()
-                . '_'
-                . uniqid()
-                . '.'
-                . $request->image->extension();
+            $imageName =
+                time() .
+                '_' .
+                uniqid() .
+                '.' .
+                $request->file('image')->extension();
 
-            $request->image->move(
+
+            $request->file('image')->move(
                 public_path('images'),
                 $imageName
             );
 
-            $imagePath = 'images/' . $imageName;
+
+            $imagePath =
+                'images/' .
+                $imageName;
         }
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Product
+        |--------------------------------------------------------------------------
+        */
+
         Product::create([
-            'name' => $request->name,
-            'details' => $request->details,
-            'size' => $request->size,
-            'color' => $request->color,
-            'category' => $request->category,
-            'price' => $request->price,
-            'stock' => $request->stock,
-            'low_stock_threshold' => $request->low_stock_threshold,
+            'name' => $validated['name'],
+            'details' => $validated['details'],
+            'size' => $validated['size'],
+            'color' => $validated['color'],
+            'category' => $validated['category'],
+            'price' => $validated['price'],
+            'stock' => $validated['stock'],
+            'low_stock_threshold' =>
+            $validated['low_stock_threshold'],
             'image' => $imagePath,
+            'status' => 'active',
         ]);
+
 
         return redirect()
             ->route('products.index')
-            ->with('success', 'Product created successfully.');
+            ->with(
+                'success',
+                'Product created successfully.'
+            );
     }
+
 
     /*
     |--------------------------------------------------------------------------
-    | Edit
+    | SHOW
     |--------------------------------------------------------------------------
     */
+
+    public function show(Product $product)
+    {
+        return view(
+            'products.show',
+            compact('product')
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | EDIT
+    |--------------------------------------------------------------------------
+    */
+
     public function edit(Product $product)
     {
-        $categories = Product::where('status', '!=', 'deleted')
+        $categories = Product::query()
+            ->whereNotNull('category')
+            ->where('category', '!=', '')
             ->select('category')
             ->distinct()
             ->orderBy('category')
             ->pluck('category');
 
+
         return view(
             'products.edit',
-            compact('product', 'categories')
+            compact(
+                'product',
+                'categories'
+            )
         );
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Update
+    | UPDATE
     |--------------------------------------------------------------------------
     */
-    public function update(Request $request, Product $product)
-    {
-        $request->validate([
-            'name' => 'required',
-            'details' => 'required',
-            'size' => 'required',
-            'color' => 'required',
-            'category' => 'required',
-            'price' => 'required|numeric|min:0',
-            'stock' => 'required|integer|min:0',
-            'low_stock_threshold' => 'required|integer|min:1',
-            'image' => 'nullable|image|max:2048',
+
+    public function update(
+        Request $request,
+        Product $product
+    ) {
+
+        $validated = $request->validate([
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'details' => [
+                'required',
+                'string',
+            ],
+
+            'size' => [
+                'required',
+                'string',
+                'max:100',
+            ],
+
+            'color' => [
+                'required',
+                'string',
+                'max:100',
+            ],
+
+            'category' => [
+                'required',
+                'string',
+                'max:100',
+            ],
+
+            'price' => [
+                'required',
+                'numeric',
+                'min:0',
+            ],
+
+            'stock' => [
+                'required',
+                'integer',
+                'min:0',
+            ],
+
+            'low_stock_threshold' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+
+            'image' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:2048',
+            ],
         ]);
 
+
         $imagePath = $product->image;
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Replace Image
+        |--------------------------------------------------------------------------
+        */
 
         if ($request->hasFile('image')) {
 
             if (
                 $product->image &&
-                file_exists(public_path($product->image))
+                file_exists(
+                    public_path($product->image)
+                )
             ) {
-                unlink(public_path($product->image));
+
+                unlink(
+                    public_path($product->image)
+                );
             }
 
-            $imageName = time()
-                . '_'
-                . uniqid()
-                . '.'
-                . $request->image->extension();
 
-            $request->image->move(
+            $imageName =
+                time() .
+                '_' .
+                uniqid() .
+                '.' .
+                $request->file('image')->extension();
+
+
+            $request->file('image')->move(
                 public_path('images'),
                 $imageName
             );
 
-            $imagePath = 'images/' . $imageName;
+
+            $imagePath =
+                'images/' .
+                $imageName;
         }
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update Product
+        |--------------------------------------------------------------------------
+        */
+
         $product->update([
-            'name' => $request->name,
-            'details' => $request->details,
-            'size' => $request->size,
-            'color' => $request->color,
-            'category' => $request->category,
-            'price' => $request->price,
-            'stock' => $request->stock,
-            'low_stock_threshold' => $request->low_stock_threshold,
+            'name' => $validated['name'],
+            'details' => $validated['details'],
+            'size' => $validated['size'],
+            'color' => $validated['color'],
+            'category' => $validated['category'],
+            'price' => $validated['price'],
+            'stock' => $validated['stock'],
+            'low_stock_threshold' =>
+            $validated['low_stock_threshold'],
             'image' => $imagePath,
         ]);
 
+
         return redirect()
             ->route('products.index')
-            ->with('success', 'Product updated successfully.');
+            ->with(
+                'success',
+                'Product updated successfully.'
+            );
     }
+
 
     /*
     |--------------------------------------------------------------------------
-    | Destroy
+    | TOGGLE STATUS
     |--------------------------------------------------------------------------
     */
-    public function destroy(Product $product)
+
+    public function toggleStatus(Product $product)
     {
-        $product->delete();
+        $product->status =
+            $product->status === 'active'
+            ? 'inactive'
+            : 'active';
+
+
+        $product->save();
+
+
+        return response()->json([
+            'success' => true,
+            'status' => $product->status,
+            'message' =>
+            'Product status updated successfully.',
+        ]);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CSV EXPORT
+    |--------------------------------------------------------------------------
+    */
+
+    public function export(Request $request)
+    {
+        $query = Product::query();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
+
+        if ($request->filled('keyword')) {
+
+            $keyword = trim(
+                $request->keyword
+            );
+
+
+            if ($keyword !== '') {
+
+                if (is_numeric($keyword)) {
+
+                    $query->where(function ($q) use ($keyword) {
+
+                        $q->where(
+                            'id',
+                            (int) $keyword
+                        )
+                            ->orWhere(
+                                'price',
+                                (float) $keyword
+                            );
+                    });
+                } else {
+
+                    $query->where(function ($q) use ($keyword) {
+
+                        $q->where(
+                            'name',
+                            'like',
+                            "%{$keyword}%"
+                        )
+                            ->orWhere(
+                                'category',
+                                'like',
+                                "%{$keyword}%"
+                            )
+                            ->orWhere(
+                                'color',
+                                'like',
+                                "%{$keyword}%"
+                            )
+                            ->orWhere(
+                                'size',
+                                'like',
+                                "%{$keyword}%"
+                            )
+                            ->orWhere(
+                                'details',
+                                'like',
+                                "%{$keyword}%"
+                            );
+                    });
+                }
+            }
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Category
+        |--------------------------------------------------------------------------
+        */
+
+        if ($request->filled('category')) {
+
+            $query->where(
+                'category',
+                $request->category
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Price Minimum
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $request->filled('price_min') &&
+            is_numeric($request->price_min)
+        ) {
+
+            $query->where(
+                'price',
+                '>=',
+                (float) $request->price_min
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Price Maximum
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $request->filled('price_max') &&
+            is_numeric($request->price_max)
+        ) {
+
+            $query->where(
+                'price',
+                '<=',
+                (float) $request->price_max
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Stock
+        |--------------------------------------------------------------------------
+        */
+
+        if ($request->filled('stock_status')) {
+
+            switch ($request->stock_status) {
+
+                case 'in-stock':
+
+                    $query
+                        ->where('stock', '>', 0)
+                        ->whereColumn(
+                            'stock',
+                            '>',
+                            'low_stock_threshold'
+                        );
+
+                    break;
+
+
+                case 'low-stock':
+
+                    $query
+                        ->where('stock', '>', 0)
+                        ->whereColumn(
+                            'stock',
+                            '<=',
+                            'low_stock_threshold'
+                        );
+
+                    break;
+
+
+                case 'out-stock':
+
+                    $query->where(
+                        'stock',
+                        '<=',
+                        0
+                    );
+
+                    break;
+            }
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Status
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $request->filled('status') &&
+            in_array(
+                $request->status,
+                ['active', 'inactive'],
+                true
+            )
+        ) {
+
+            $query->where(
+                'status',
+                $request->status
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sorting
+        |--------------------------------------------------------------------------
+        */
+
+        switch ($request->get('sort')) {
+
+            case 'id-asc':
+
+                $query->orderBy(
+                    'id',
+                    'asc'
+                );
+
+                break;
+
+
+            case 'id-desc':
+
+                $query->orderBy(
+                    'id',
+                    'desc'
+                );
+
+                break;
+
+
+            case 'price-asc':
+
+                $query
+                    ->orderBy('price', 'asc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            case 'price-desc':
+
+                $query
+                    ->orderBy('price', 'desc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            case 'name-asc':
+
+                $query
+                    ->orderBy('name', 'asc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            case 'name-desc':
+
+                $query
+                    ->orderBy('name', 'desc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            case 'oldest':
+
+                $query
+                    ->orderBy('created_at', 'asc')
+                    ->orderBy('id', 'asc');
+
+                break;
+
+
+            case 'latest':
+
+                $query
+                    ->orderBy('created_at', 'desc')
+                    ->orderBy('id', 'desc');
+
+                break;
+
+
+            default:
+
+                $query->orderBy(
+                    'id',
+                    'asc'
+                );
+
+                break;
+        }
+
+
+        $products = $query->get();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Filename
+        |--------------------------------------------------------------------------
+        */
+
+        $filename =
+            'products_' .
+            now()->format('Y-m-d_H-i-s') .
+            '.csv';
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | CSV Download
+        |--------------------------------------------------------------------------
+        */
+
+        return response()->streamDownload(
+
+            function () use ($products) {
+
+                $handle = fopen(
+                    'php://output',
+                    'w'
+                );
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | UTF-8 BOM
+                |--------------------------------------------------------------------------
+                */
+
+                fwrite(
+                    $handle,
+                    "\xEF\xBB\xBF"
+                );
+
+
+                fputcsv($handle, [
+                    'ID',
+                    'Name',
+                    'Details',
+                    'Size',
+                    'Color',
+                    'Category',
+                    'Price',
+                    'Stock',
+                    'Low Stock Threshold',
+                    'Status',
+                    'Created At',
+                ]);
+
+
+                foreach ($products as $product) {
+
+                    fputcsv($handle, [
+                        $product->id,
+                        $product->name,
+                        $product->details,
+                        $product->size,
+                        $product->color,
+                        $product->category,
+                        $product->price,
+                        $product->stock,
+                        $product->low_stock_threshold,
+                        $product->status,
+                        optional(
+                            $product->created_at
+                        )->format(
+                            'Y-m-d H:i:s'
+                        ),
+                    ]);
+                }
+
+
+                fclose($handle);
+            },
+
+            $filename,
+
+            [
+                'Content-Type' =>
+                'text/csv; charset=UTF-8',
+            ]
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | BULK DELETE
+    |--------------------------------------------------------------------------
+    */
+
+    public function bulkDelete(
+        Request $request
+    ) {
+
+        $validated = $request->validate([
+            'ids' => [
+                'required',
+                'array',
+                'min:1',
+            ],
+
+            'ids.*' => [
+                'integer',
+                'exists:products,id',
+            ],
+        ]);
+
+
+        $products = Product::query()
+            ->whereIn(
+                'id',
+                $validated['ids']
+            )
+            ->get();
+
+
+        foreach ($products as $product) {
+
+            $product->delete();
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Redirect Instead Of JSON
+        |--------------------------------------------------------------------------
+        */
 
         return redirect()
             ->route('products.index')
-            ->with('success', 'Product deleted successfully.');
+            ->with(
+                'success',
+                $products->count() .
+                    ' product(s) moved to trash.'
+            );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DUPLICATE
+    |--------------------------------------------------------------------------
+    */
+
+    public function duplicate(
+        Product $product
+    ) {
+
+        $copy = $product->replicate();
+
+
+        $copy->name =
+            $product->name .
+            ' (Copy)';
+
+
+        $copy->status = 'active';
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Duplicate Image
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $product->image &&
+            file_exists(
+                public_path($product->image)
+            )
+        ) {
+
+            $extension = pathinfo(
+                $product->image,
+                PATHINFO_EXTENSION
+            );
+
+
+            $newImageName =
+                time() .
+                '_' .
+                uniqid() .
+                '.' .
+                $extension;
+
+
+            $imagesDirectory =
+                public_path('images');
+
+
+            if (
+                !is_dir($imagesDirectory)
+            ) {
+
+                mkdir(
+                    $imagesDirectory,
+                    0755,
+                    true
+                );
+            }
+
+
+            copy(
+                public_path($product->image),
+                $imagesDirectory .
+                    DIRECTORY_SEPARATOR .
+                    $newImageName
+            );
+
+
+            $copy->image =
+                'images/' .
+                $newImageName;
+        }
+
+
+        $copy->save();
+
+
+        return redirect()
+            ->route('products.index')
+            ->with(
+                'success',
+                'Product duplicated successfully.'
+            );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DELETE → TRASH
+    |--------------------------------------------------------------------------
+    */
+
+    public function destroy(
+        Product $product
+    ) {
+
+        $product->delete();
+
+
+        return redirect()
+            ->route('products.index')
+            ->with(
+                'success',
+                'Product moved to trash.'
+            );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | TRASH
+    |--------------------------------------------------------------------------
+    */
+
+    public function trash()
+    {
+        $products = Product::onlyTrashed()
+            ->orderBy(
+                'deleted_at',
+                'desc'
+            )
+            ->orderBy(
+                'id',
+                'desc'
+            )
+            ->paginate(5)
+            ->withQueryString();
+
+
+        return view(
+            'products.trash',
+            compact('products')
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESTORE
+    |--------------------------------------------------------------------------
+    */
+
+    public function restore($id)
+    {
+        $product = Product::onlyTrashed()
+            ->findOrFail($id);
+
+
+        $product->restore();
+
+
+        return redirect()
+            ->route('products.trash')
+            ->with(
+                'success',
+                'Product restored successfully.'
+            );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | FORCE DELETE
+    |--------------------------------------------------------------------------
+    */
+
+    public function forceDelete($id)
+    {
+        $product = Product::onlyTrashed()
+            ->findOrFail($id);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Delete Product Image
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $product->image &&
+            file_exists(
+                public_path($product->image)
+            )
+        ) {
+
+            unlink(
+                public_path($product->image)
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Permanent Delete
+        |--------------------------------------------------------------------------
+        */
+
+        $product->forceDelete();
+
+
+        return redirect()
+            ->route('products.trash')
+            ->with(
+                'success',
+                'Product permanently deleted.'
+            );
     }
 }
