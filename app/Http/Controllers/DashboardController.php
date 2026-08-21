@@ -262,7 +262,7 @@ class DashboardController extends Controller
         */
 
         $dashboardProducts = $productsQuery
-            ->paginate(10)
+            ->paginate(5)
             ->withQueryString();
 
 
