@@ -1,59 +1,204 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+# PHP_Laravel11_Live_Search_With_Pagination
 
-## About Laravel
+This README explains ONLY the **LIVE SEARCH** and **AJAX Pagination** system used in the Product CRUD application.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+# Step 1 — Install Laravel 11
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+```
+composer create-project laravel/laravel example-app
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+# Step 2 — Configure Database
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Update `.env`:
 
-### Premium Partners
+```
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_DATABASE=your_db
+DB_USERNAME=root
+DB_PASSWORD=root
+```
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+---
 
-## Contributing
+# Step 3 — Create Products Table
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```
+php artisan make:migration create_products_table --create=products
+```
 
-## Code of Conduct
+Migration fields include:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- name  
+- details  
+- price  
+- size  
+- color  
+- category  
+- image  
 
-## Security Vulnerabilities
+Run migration:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```
+php artisan migrate
+```
 
-## License
+---
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# Step 4 — Add Resource Routes
+
+```
+Route::resource('products', ProductController::class);
+```
+
+---
+
+# Step 5 — Product Model
+
+```php
+protected $fillable = [
+  'name','details','price','size','color','category','image'
+];
+```
+
+---
+
+ MAIN FEATURE: LIVE SEARCH + PAGINATION (NO PRICE SORT)
+
+Everything happens inside **ProductController@index()**.
+
+---
+ 6.1 Controller — Live Search Logic
+
+```php
+if ($request->filled('keyword')) {
+
+    $keyword = $request->keyword;
+
+    if (is_numeric($keyword)) {
+
+        // Number → search exact price
+        $query->where('price', (float)$keyword);
+
+    } else {
+
+        // Text search across multiple fields
+        $query->where(function ($q) use ($keyword) {
+            $q->where('name', 'like', "%{$keyword}%")
+              ->orWhere('category', 'like', "%{$keyword}%")
+              ->orWhere('color', 'like', "%{$keyword}%")
+              ->orWhere('size', 'like', "%{$keyword}%")
+              ->orWhere('details', 'like', "%{$keyword}%");
+        });
+    }
+}
+```
+
+ Explanation  
+- If user types a **number** → we search price  
+- If user types **text** → we search name, category, size, color, details  
+- This gives instant e-commerce like search
+
+---
+
+ 6.2 Controller — PAGINATION Logic (Most Important)
+
+```php
+$products = $query->paginate(1)->appends($request->query());
+```
+
+ Why `.appends()` is used?  
+So that when you click next page:
+
+- The **same search keyword stays active**
+- Pagination never resets your results  
+- AJAX remembers your filters  
+
+---
+
+# Step 7 — Blade UI for Live Search + Pagination
+
+ Search Input
+```html
+<input type="text" id="search" class="form-control" placeholder="Search products...">
+```
+
+ Pagination UI
+Laravel automatically renders:
+
+```blade
+{{ $products->links() }}
+```
+
+---
+
+# Step 8 — AJAX Code (LIVE SEARCH + PAGINATION ONLY)
+
+No sorting code included.
+
+```javascript
+function fetch_data(page = 1, keyword = '') {
+
+    $.ajax({
+        url: "{{ route('products.index') }}",
+        type: "GET",
+        data: { page, keyword },
+        success: function(data) {
+
+            $('#product-table-wrapper')
+              .html($(data).find('#product-table-wrapper').html());
+        }
+    });
+}
+```
+
+---
+
+ Live Search Trigger
+
+```javascript
+$('#search').on('keyup', function(){
+    fetch_data(1, $('#search').val());
+});
+```
+
+---
+
+ Pagination Trigger
+
+```javascript
+$(document).on('click', '.pagination a', function(e){
+    e.preventDefault();
+
+    let page = $(this).attr('href').split('page=')[1];
+
+    fetch_data(page, $('#search').val());
+});
+```
+
+---
+
+ Run Project
+
+```
+php artisan serve
+```
+
+Visit admin CRUD:
+
+```
+http://localhost:8000/products
+```
+<img width="1054" height="237" alt="image" src="https://github.com/user-attachments/assets/a9fec3bb-37c2-41b6-bdfe-fd2001128d12" />
+<img width="676" height="151" alt="image" src="https://github.com/user-attachments/assets/d643f305-dc04-4141-97d6-0a61606aff3b" />
+```
+
+---
